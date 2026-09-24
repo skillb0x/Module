@@ -13,6 +13,9 @@ CAND = {
     "id": "MOD-TEST-a", "name": "A", "subkategorie": "x", "url": "https://a.example",
     "lizenz": "MIT", "betrieb": "self-hosted", "pflege": "aktiv", "fit_score": 4,
     "empfehlung": "REUSE", "begruendung": "gut",
+    "sicherheit": ["OIDC", "Audit-Log"], "deutsch": "UI deutsch", "branding": "Theming, Logo frei (MIT)",
+    "schnittstellen": ["REST", "Webhooks"], "integration_windows": "OpenAPI", "integration_macos": "Browser",
+    "browser_only": "ja", "docker": "offizielles Image",
     "belege": [
         {"aussage": "s", "klasse": "OBSERVED", "quelltyp": "anbieter", "url": "https://a.example/1"},
         {"aussage": "t", "klasse": "OBSERVED", "quelltyp": "community", "url": "https://a.example/2"},
@@ -74,6 +77,22 @@ class ValidateTests(unittest.TestCase):
         _, warnings = self.v(d)
         self.assertTrue(any("Beleg" in w for w in warnings))
 
+    def test_missing_cross_cutting_field_is_warning(self):
+        d = copy.deepcopy(DOMAIN)
+        del d["kandidaten"][0]["branding"]
+        d["kandidaten"][0]["docker"] = ""
+        errors, warnings = self.v(d)
+        self.assertEqual(errors, [])
+        self.assertTrue(any("Querschnitt fehlt: branding, docker" in w for w in warnings))
+
+    def test_cross_cutting_not_required_for_low_fit(self):
+        d = copy.deepcopy(DOMAIN)
+        d["kandidaten"][0]["fit_score"] = 2
+        d["shortlist"] = []
+        del d["kandidaten"][0]["branding"]
+        _, warnings = self.v(d)
+        self.assertFalse(any("Querschnitt" in w for w in warnings))
+
     def test_missing_verification_is_warning(self):
         d = copy.deepcopy(DOMAIN)
         del d["kandidaten"][0]["verifikation"]
@@ -114,6 +133,8 @@ class FileTests(unittest.TestCase):
         self.assertEqual(first, self.read(out))
         self.assertIn("ERZEUGT", first)
         self.assertIn("MOD-TEST-a", first)
+        self.assertIn("| 8/8 |", first)
+        self.assertIn("| 1/1 |", first)
 
     def test_render_refuses_on_errors(self):
         bad = copy.deepcopy(DOMAIN)

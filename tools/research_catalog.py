@@ -41,6 +41,35 @@ KLASSE = {"NORMATIVE", "OBSERVED", "INFERRED", "HYPOTHESIS"}
 VERIF_STATUS = {"VERIFIED", "PARTIAL", "UNVERIFIED", "REFUTED"}
 CHECK_RESULT = {"CONFIRMED", "REFUTED", "UNKNOWN"}
 
+# Querschnittskriterien QS-01..QS-08 (docs/anforderungen.md): gelten für JEDEN Kandidaten JEDER Domain.
+# Fehlt ein Feld bei einem relevanten Kandidaten (Fit >= 3 oder Shortlist), ist das eine Warnung
+# und in der Kontrollansicht als Lücke sichtbar – nie stillschweigend "erfüllt".
+QS_FIELDS = {
+    "sicherheit": "QS-01 secure",
+    "deutsch": "QS-02 Deutsch",
+    "branding": "QS-03 Branding/White-Label",
+    "schnittstellen": "QS-04 Web-Integration",
+    "integration_windows": "QS-05 Windows",
+    "integration_macos": "QS-06 macOS/Apple",
+    "browser_only": "QS-07 Browser-first extern",
+    "docker": "QS-08 Docker/GPU-Betrieb",
+}
+
+
+def qs_missing(c: dict) -> list[str]:
+    """Querschnittsfelder, die fehlen oder leer sind."""
+    missing = []
+    for field in QS_FIELDS:
+        v = c.get(field)
+        if v is None or (isinstance(v, (str, list)) and not v):
+            missing.append(field)
+    return missing
+
+
+def qs_relevant(c: dict, shortlist: list) -> bool:
+    score = c.get("fit_score")
+    return (isinstance(score, int) and not isinstance(score, bool) and score >= 3) or c.get("id") in shortlist
+
 
 def sha256_file(path: str) -> str:
     h = hashlib.sha256()
@@ -110,6 +139,9 @@ def validate(files: list[tuple[str, dict]]) -> tuple[list[str], list[str]]:
                     warnings.append(f"{where}: Beleg-Klasse '{b.get('klasse')}' ungültig")
             if isinstance(score, int) and score >= 3 and len(belege) < 2:
                 warnings.append(f"{where}: fit_score {score} mit nur {len(belege)} Beleg(en)")
+            miss = qs_missing(c)
+            if miss and qs_relevant(c, data.get("shortlist") or []):
+                warnings.append(f"{where}: Querschnitt fehlt: {', '.join(miss)}")
             verif = c.get("verifikation")
             if verif is None:
                 warnings.append(f"{where}: keine verifikation")
@@ -141,42 +173,59 @@ def render(files: list[tuple[str, dict]], scan_dirs: list[str]) -> str:
         "",
         "## Übersicht",
         "",
-        "| Domain | Kandidaten | Shortlist | VERIFIED | PARTIAL | UNVERIFIED | REFUTED | Datei-SHA256 (12) |",
-        "|---|---:|---|---:|---:|---:|---:|---|",
+        "| Domain | Kandidaten | Shortlist | VERIFIED | PARTIAL | UNVERIFIED | REFUTED | QS vollständig (Fit≥3/Shortlist) | Datei-SHA256 (12) |",
+        "|---|---:|---|---:|---:|---:|---:|---|---|",
     ]
     for path, data in files:
-        cands = data.get("kandidaten") or []
-        by_id = {c.get("id"): c for c in cands if isinstance(c, dict)}
+        cands = [c for c in data.get("kandidaten") or [] if isinstance(c, dict)]
+        shortlist = data.get("shortlist") or []
+        by_id = {c.get("id"): c for c in cands}
         counts = {s: 0 for s in VERIF_STATUS}
         for c in cands:
-            st = (c.get("verifikation") or {}).get("status") if isinstance(c, dict) else None
+            st = (c.get("verifikation") or {}).get("status")
             if st in counts:
                 counts[st] += 1
-        short = ", ".join(_cell(by_id.get(s, {}).get("name", s)) for s in data.get("shortlist") or [])
+        rel = [c for c in cands if qs_relevant(c, shortlist)]
+        qs_full = sum(1 for c in rel if not qs_missing(c))
+        qs_cell = f"{qs_full}/{len(rel)}" if rel else "N/A"
+        short = ", ".join(_cell(by_id.get(s, {}).get("name", s)) for s in shortlist)
         lines.append(
             f"| [{_cell(data.get('domain'))}](#{_cell(data.get('domain'))}) | {len(cands)} | {short} | "
             f"{counts['VERIFIED']} | {counts['PARTIAL']} | {counts['UNVERIFIED']} | {counts['REFUTED']} | "
-            f"`{sha256_file(path)[:12]}` |"
+            f"{qs_cell} | `{sha256_file(path)[:12]}` |"
         )
+    lines += [
+        "",
+        "Querschnittskriterien (gelten für alle Module): " + ", ".join(QS_FIELDS.values()) + ". "
+        "QS = Anzahl belegter Querschnittsfelder je Kandidat; fehlende Felder sind Lücken, keine Erfüllung.",
+    ]
     for path, data in files:
         dom = _cell(data.get("domain"))
         lines += ["", f"<a id=\"{dom}\"></a>", f"## {dom} – {_cell(data.get('titel'))}", "",
                   f"Quelle: `{os.path.relpath(path, ROOT)}` · Stand {_cell(data.get('stand'))}", ""]
         shortlist = data.get("shortlist") or []
-        lines += ["| # | ID | Name | Lizenz | Betrieb | Version (Datum) | Pflege | Fit | Empfehlung | Verifikation |",
-                  "|---|---|---|---|---|---|---|---:|---|---|"]
+        lines += ["| # | ID | Name | Lizenz | Betrieb | Version (Datum) | Pflege | Fit | Empfehlung | Verifikation | QS |",
+                  "|---|---|---|---|---|---|---|---:|---|---|---|"]
         cands = [c for c in data.get("kandidaten") or [] if isinstance(c, dict)]
         order = {sid: i for i, sid in enumerate(shortlist)}
         cands.sort(key=lambda c: (order.get(c.get("id"), 999), -(c.get("fit_score") or 0), str(c.get("name"))))
         for c in cands:
             rank = order.get(c.get("id"))
             ver = f"{_cell(c.get('letzte_version'))} ({_cell(c.get('letzte_version_datum'))})"
+            qs = f"{len(QS_FIELDS) - len(qs_missing(c))}/{len(QS_FIELDS)}"
             lines.append(
                 f"| {'★' + str(rank + 1) if rank is not None else ''} | `{_cell(c.get('id'))}` | "
                 f"[{_cell(c.get('name'))}]({_cell(c.get('url'))}) | {_cell(c.get('lizenz'))} | {_cell(c.get('betrieb'))} | "
                 f"{ver} | {_cell(c.get('pflege'))} | {_cell(c.get('fit_score'))} | {_cell(c.get('empfehlung'))} | "
-                f"{_cell((c.get('verifikation') or {}).get('status'))} |"
+                f"{_cell((c.get('verifikation') or {}).get('status'))} | {qs} |"
             )
+        rel = [c for c in cands if qs_relevant(c, shortlist)]
+        if rel:
+            coverage = ", ".join(
+                f"{label} {sum(1 for c in rel if field not in qs_missing(c))}/{len(rel)}"
+                for field, label in QS_FIELDS.items()
+            )
+            lines += ["", f"Querschnittsabdeckung (Fit≥3/Shortlist): {coverage}"]
         top = [c for c in cands if c.get("id") in order]
         if top:
             lines += ["", "### Shortlist – Begründung und Risiken", ""]
