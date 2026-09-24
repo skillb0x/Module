@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "stand": "2026-09-24",
+  "hinweis": "Freigegebener Modulkatalog (getrennt von Recherche und Roharchiv). Einträge nur nach ausdrücklicher Freigabe durch den Nutzer; Recherche-Kandidaten stehen in research/*/domains/*.json mit Status PROPOSED.",
+  "module": []
+}
