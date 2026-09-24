@@ -1,0 +1,20 @@
+# Module – Arbeitsregeln für Claude (ENTWURF, Status PREPARED, nicht aktiv)
+
+<!-- Aktivierung: nach Freigabe als ./CLAUDE.md ins Repo-Root. Unter 200 Zeilen halten.
+     Nur Verweise, keine zweite Wahrheit: Inhalte stehen in den importierten/verlinkten Dateien.
+     @-Imports werden beim Start geladen (max. 4 Ebenen, relativ zu dieser Datei);
+     Pfade in Backticks werden NICHT importiert. -->
+
+## Grundregeln (immer geladen)
+Die Regeldateien unter `.claude/rules/` (ohne `paths`-Frontmatter) lädt Claude Code automatisch
+bei jedem Start; sie werden hier deshalb nicht zusätzlich importiert.
+
+## Stand lesen statt neu bauen
+- Projektzustand und Rollen der Ordner: @README.md
+- Roharchiv (wortgetreu, append-only, sha256 je Eintrag): `archive/chat/messages.jsonl`
+- Recherche-Wahrheit: `research/<scan>/domains/*.json`; freigegebener Katalog: `registry/modules.approved.json`
+- Kontrollansichten sind erzeugt (`python3 tools/research_catalog.py render`), nie von Hand ändern
+- Tests: `python3 -m unittest discover -s tests`
+
+## Status-Vokabular
+PREPARED → WRITTEN → LOADED → SMOKE_TESTED, getrennt melden. Ohne Schreibweg: NICHT_GESPEICHERT.
