@@ -128,7 +128,15 @@ class FileTests(unittest.TestCase):
         d["kandidaten"][0]["lizenz"] = "AGPL|kommerziell"
         self.write("test.json", json.dumps(d))
         files, _ = rc.load_domains(self.tmp.name)
-        self.assertIn("AGPL\\|kommerziell", rc.render(files, self.tmp.name))
+        self.assertIn("AGPL\\|kommerziell", rc.render(files, [self.tmp.name]))
+
+    def test_ids_unique_across_scans(self):
+        self.write("test.json", json.dumps(DOMAIN))
+        with tempfile.TemporaryDirectory() as other:
+            os.makedirs(os.path.join(other, "domains"))
+            with open(os.path.join(other, "domains", "x.json"), "w", encoding="utf-8") as f:
+                f.write(json.dumps(DOMAIN))
+            self.assertEqual(rc.main(["validate", "--scan", self.tmp.name, "--scan", other]), 1)
 
 
 if __name__ == "__main__":

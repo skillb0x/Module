@@ -5,8 +5,10 @@ Wahrheit:        research/<scan>/domains/*.json   (von Recherche/Verifikation ge
 Kontrollansicht: docs/modulkatalog.md              (erzeugt, nie von Hand bearbeiten)
 
 Aufruf:
-    python3 tools/research_catalog.py validate [--scan DIR]
-    python3 tools/research_catalog.py render   [--scan DIR] [--out FILE]
+    python3 tools/research_catalog.py validate [--scan DIR ...]
+    python3 tools/research_catalog.py render   [--scan DIR ...] [--out FILE]
+
+Ohne --scan werden alle research/*/domains-Verzeichnisse gelesen; IDs müssen scanübergreifend eindeutig sein.
 
 Exit-Code 0 = keine Fehler (Warnungen erlaubt), 1 = Fehler.
 Nur Standardbibliothek (Python >= 3.11).
@@ -22,7 +24,10 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_SCAN = os.path.join(ROOT, "research", "2026-09_modul-scan")
+
+def default_scans() -> list[str]:
+    return sorted(os.path.dirname(d) for d in glob.glob(os.path.join(ROOT, "research", "*", "domains")))
+
 DEFAULT_OUT = os.path.join(ROOT, "docs", "modulkatalog.md")
 
 TOP_REQUIRED = ["schema_version", "domain", "titel", "stand", "kandidaten", "shortlist"]
@@ -125,12 +130,13 @@ def _cell(value) -> str:
     return text.replace("|", "\\|").replace("\n", " ").strip() or "?"
 
 
-def render(files: list[tuple[str, dict]], scan_dir: str) -> str:
+def render(files: list[tuple[str, dict]], scan_dirs: list[str]) -> str:
+    sources = ", ".join(f"`{os.path.relpath(d, ROOT)}/domains/*.json`" for d in scan_dirs)
     lines = [
         "# Modulkatalog – Kontrollansicht",
         "",
         "> **ERZEUGT** von `tools/research_catalog.py render` – nicht von Hand bearbeiten.",
-        f"> Wahrheit: `{os.path.relpath(scan_dir, ROOT)}/domains/*.json`. Status aller Einträge: **PROPOSED** (nicht freigegeben).",
+        f"> Wahrheit: {sources}. Status aller Einträge: **PROPOSED** (nicht freigegeben).",
         "> `?` = unbekannt. Fit = 1..5 bezogen auf den Nutzerauftrag.",
         "",
         "## Übersicht",
@@ -206,11 +212,18 @@ def atomic_write(path: str, text: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["validate", "render"])
-    ap.add_argument("--scan", default=DEFAULT_SCAN)
+    ap.add_argument("--scan", action="append", help="Scan-Verzeichnis (mehrfach möglich)")
     ap.add_argument("--out", default=DEFAULT_OUT)
     a = ap.parse_args(argv)
+    scans = a.scan or default_scans()
 
-    files, load_errors = load_domains(a.scan)
+    files, load_errors = [], []
+    for scan in scans:
+        f, e = load_domains(scan)
+        files += f
+        load_errors += e
+    if not scans:
+        load_errors.append("keine research/*/domains-Verzeichnisse gefunden")
     errors, warnings = validate(files)
     errors = load_errors + errors
     for w in warnings:
@@ -223,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
         if errors:
             print("render abgebrochen: erst Fehler beheben")
             return 1
-        atomic_write(a.out, render(files, a.scan))
+        atomic_write(a.out, render(files, scans))
         print(f"geschrieben: {os.path.relpath(a.out, ROOT)}")
     return 1 if errors else 0
 
